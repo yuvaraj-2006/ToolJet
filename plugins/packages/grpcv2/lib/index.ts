@@ -35,6 +35,8 @@ export default class Grpcv2QueryService implements QueryService {
     _dataSourceUpdatedAt: string
   ): Promise<QueryResult> {
     try {
+      this.validateServiceIsConfigured(sourceOptions, queryOptions.service);
+
       const client = await this.createGrpcClient(sourceOptions, queryOptions.service);
 
       this.validateRequestData(queryOptions);
@@ -319,6 +321,24 @@ export default class Grpcv2QueryService implements QueryService {
   private validateSourceOptionsForDiscovery(sourceOptions: SourceOptions): void {
     if (!sourceOptions) {
       throw new GrpcOperationError('Source options are required for service discovery');
+    }
+  }
+
+  // In filesystem mode the data source config decides which services queries may use.
+  // A saved query can still point at a service that was later removed from that list,
+  // and the proto files on disk would happily load it again, so check it before building a client.
+  private validateServiceIsConfigured(sourceOptions: SourceOptions, serviceName: string): void {
+    if (sourceOptions.proto_files !== 'import_protos_from_filesystem') return;
+
+    const selectedServices = sourceOptions.selected_services;
+    // Data sources saved before service selection existed have no list at all; leave them as they were.
+    if (!Array.isArray(selectedServices)) return;
+
+    if (!selectedServices.includes(serviceName)) {
+      throw new GrpcOperationError(
+        `Service ${serviceName} is not configured for this data source. ` +
+          `Add it to the selected services in the data source configuration or choose another service.`
+      );
     }
   }
 
